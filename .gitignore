@@ -1,0 +1,30 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# venv
+venv/
+.venv/
+env/
+
+# data (too big for git)
+data/raw/
+data/processed/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# jupyter
+.ipynb_checkpoints/
+
+# misc
+*.log
+.env
