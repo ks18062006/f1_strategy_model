@@ -1,7 +1,4 @@
 """
-app/streamlit_app.py
---------------------
-Interactive F1 Pit Strategy Dashboard with Strategy Simulator.
 
 Run with:
     streamlit run app/streamlit_app.py
@@ -26,9 +23,7 @@ from src.data_builder import RaceDataBuilder, DRY_RACES_2023
 from src.evaluate import _style_ax, COLORS
 from src.train_model import MODEL_OUTPUT_PATH, FE_OUTPUT_PATH
 
-# ------------------------------------------------------------------
 # Constants
-# ------------------------------------------------------------------
 COMPOUND_COLORS = {
     "SOFT": "#FF3333",
     "MEDIUM": "#FFC906",
@@ -44,9 +39,7 @@ COMPOUND_TEXT_COLOR = {
 # Typical pit stop time loss in seconds (pit lane + stationary)
 PIT_STOP_LOSS = 22.0
 
-# ------------------------------------------------------------------
 # Page config
-# ------------------------------------------------------------------
 st.set_page_config(
     page_title="F1 Pit Strategy AI",
     page_icon="🏎️",
@@ -132,9 +125,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ------------------------------------------------------------------
 # Helpers
-# ------------------------------------------------------------------
+
 
 @st.cache_resource
 def load_model_and_fe():
@@ -268,9 +260,7 @@ def simulate_strategy(total_laps: int, num_stops: int, compounds: list, compound
     }
 
 
-# ------------------------------------------------------------------
 # Sidebar
-# ------------------------------------------------------------------
 
 if not MODEL_OUTPUT_PATH.exists():
     st.error("No trained model found. Run `python -m src.train_model` first.")
@@ -317,9 +307,7 @@ with st.sidebar:
 
 selected_driver = st.session_state.get("selected_driver")
 
-# ------------------------------------------------------------------
 # Main content
-# ------------------------------------------------------------------
 
 st.markdown(
     f'<h1 style="font-weight:900; letter-spacing:-1px;">Pit Strategy — {selected_race}</h1>',
@@ -355,9 +343,7 @@ actual_pits = df_race[
     (df_race["Driver"] == selected_driver) & df_race["PitInTime"].notna()
 ]["LapNumber"].tolist()
 
-# =============================================
 # SECTION 1: Driver Card + Pit Probability Curve
-# =============================================
 
 st.markdown(f'<div class="driver-card">', unsafe_allow_html=True)
 
@@ -422,9 +408,8 @@ with chart_col:
 st.markdown('</div>', unsafe_allow_html=True)
 
 
-# =============================================
 # SECTION 2: Strategy Simulator
-# =============================================
+
 
 st.markdown("---")
 st.markdown(
