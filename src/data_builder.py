@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import fastf1
+import numpy as np
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -118,27 +119,30 @@ class RaceDataBuilder:
         return laps
 
     def _add_pit_target(self, laps: pd.DataFrame) -> pd.DataFrame:
-        """y=1 if driver pits within next 3 laps."""
+        """y=1 if the driver's next pit stop is 1 to 3 laps away.
+
+        One row per (Driver, LapNumber). A merge onto every pit stop duplicated
+        laps for drivers who stopped more than once, and those copies could
+        carry different labels. The pit laps themselves are still dropped.
+        """
         laps = laps.copy()
         laps = laps.sort_values(["Driver", "LapNumber"])
+        labels = pd.Series(0, index=laps.index, dtype=int)
 
-        pit_laps = laps[laps["PitInTime"].notna()][["Driver", "LapNumber"]].copy()
-        pit_laps = pit_laps.rename(columns={"LapNumber": "PitLap"})
+        for _, group in laps.groupby("Driver", sort=False):
+            pit_laps = np.unique(group.loc[group["PitInTime"].notna(), "LapNumber"].to_numpy())
+            if pit_laps.size == 0:
+                continue
+            lap_numbers = group["LapNumber"].to_numpy()
+            # side="right" selects the next pit strictly after this lap.
+            next_idx = np.searchsorted(pit_laps, lap_numbers, side="right")
+            has_next = next_idx < pit_laps.size
+            gaps = np.full(lap_numbers.shape, np.nan)
+            gaps[has_next] = pit_laps[next_idx[has_next]] - lap_numbers[has_next]
+            labels.loc[group.index[(gaps >= 1) & (gaps <= 3)]] = 1
 
-        laps = laps.merge(pit_laps, on="Driver", how="left")
-
-        def compute_target(row):
-            if pd.isna(row["PitLap"]):
-                return 0
-            gap = row["PitLap"] - row["LapNumber"]
-            return int(1 <= gap <= 3)
-
-        laps["WillPitNext3"] = laps.apply(compute_target, axis=1)
-
-        # drop actual pit laps (leakage)
+        laps["WillPitNext3"] = labels.to_numpy()
         laps = laps[laps["PitInTime"].isna()].copy()
-        laps = laps.drop(columns=["PitLap"], errors="ignore")
-
         return laps
 
     def _add_race_metadata(self, laps: pd.DataFrame, race_name: str, year: int) -> pd.DataFrame:
