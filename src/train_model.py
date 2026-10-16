@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 MODEL_OUTPUT_PATH = Path("data/processed/xgb_pit_model.pkl")
 FE_OUTPUT_PATH = Path("data/processed/feature_engineer.pkl")
 
+# Training races used only to choose the early-stopping iteration.
+# They are the last two DRY_RACES_2023 entries that are not in TEST_RACES_2023.
+# Test races stay out of fitting and out of eval_set.
+VAL_RACES_2023 = ["Hungary", "Belgium"]
+
 # tuned for ~5-10% positive rate
 XGB_PARAMS = {
     "n_estimators": 400,
@@ -41,37 +46,59 @@ XGB_PARAMS = {
 def train(
     df_raw: pd.DataFrame,
     test_races: list = TEST_RACES_2023,
+    val_races: list = None,
     save: bool = True,
     early_stopping_rounds: int = 30,
 ):
-    """Full pipeline: split → features → fit → save."""
+    """Full pipeline: split → features → fit → save.
+
+    Early stopping watches ``val_races`` only. ``test_races`` are transformed
+    and scored after fitting, and are not part of ``eval_set``.
+    """
+    if val_races is None:
+        val_races = list(VAL_RACES_2023)
+
     logger.info("=== F1 Pit Window Predictor — Training ===")
 
-    # split by race, not randomly
-    df_train_raw, df_test_raw = _split_by_race(df_raw, test_races)
+    # split by race, not randomly. Test is removed before the validation split.
+    df_trainval_raw, df_test_raw = _split_by_race(df_raw, test_races)
+    overlap = {r.lower() for r in val_races} & {r.lower() for r in test_races}
+    if overlap:
+        raise ValueError(f"Validation races overlap test races: {sorted(overlap)}")
+    df_train_raw, df_val_raw = _split_by_race(df_trainval_raw, val_races)
+    if df_train_raw.empty or df_val_raw.empty or df_test_raw.empty:
+        raise ValueError(
+            "Race split produced an empty train, validation, or test set "
+            f"(train={len(df_train_raw)}, val={len(df_val_raw)}, test={len(df_test_raw)})"
+        )
     logger.info(
-        "Train: %d rows (%d races) | Test: %d rows (%d races)",
+        "Train: %d rows (%d races) | Val: %d rows (%d races) | Test: %d rows (%d races)",
         len(df_train_raw), df_train_raw["race_name"].nunique(),
+        len(df_val_raw), df_val_raw["race_name"].nunique(),
         len(df_test_raw), df_test_raw["race_name"].nunique(),
     )
+    logger.info("Train races: %s", sorted(df_train_raw["race_name"].unique()))
+    logger.info("Val races: %s", sorted(df_val_raw["race_name"].unique()))
+    logger.info("Test races: %s", sorted(df_test_raw["race_name"].unique()))
 
-    # engineer features
+    # engineer features on the fitting races only
     fe = FeatureEngineer()
     X_train, y_train = fe.fit_transform(df_train_raw)
+    X_val, y_val = fe.transform(df_val_raw)
     X_test, y_test = fe.transform(df_test_raw)
 
     logger.info(
-        "Class balance — Train: %.1f%% pit | Test: %.1f%% pit",
-        100 * y_train.mean(), 100 * y_test.mean()
+        "Class balance — Train: %.1f%% pit | Val: %.1f%% pit | Test: %.1f%% pit",
+        100 * y_train.mean(), 100 * y_val.mean(), 100 * y_test.mean(),
     )
 
-    # handle class imbalance
+    # handle class imbalance from the fitting races only
     neg = (y_train == 0).sum()
     pos = (y_train == 1).sum()
     scale_pos_weight = neg / pos
     logger.info("scale_pos_weight = %.2f  (neg=%d, pos=%d)", scale_pos_weight, neg, pos)
 
-    # train xgboost
+    # train xgboost. The last eval set is the one early stopping watches.
     params = {
         **XGB_PARAMS,
         "scale_pos_weight": scale_pos_weight,
@@ -79,7 +106,7 @@ def train(
     }
     model = xgb.XGBClassifier(**params)
 
-    eval_set = [(X_train, y_train), (X_test, y_test)]
+    eval_set = [(X_train, y_train), (X_val, y_val)]
     model.fit(X_train, y_train, eval_set=eval_set, verbose=50)
 
     logger.info("Best iteration: %d", model.best_iteration)
